@@ -37,13 +37,17 @@ cd ~/.dsh/profiles/web && pnpm install
 
 完成后重启 DSH 并硬刷新（Cmd/Ctrl+Shift+R）。
 
-### 插件注册表通道
+### GitHub 通道（`dsh plugin` 一键安装）
+
+`dsh plugin add` 接受任何 pnpm 依赖形式；本插件**不发布 npm**，用 GitHub Release 的预构建 tarball 安装。包内 `dsh.bundle` 声明（cordis.patch.yml）使 `dsh plugin` 自动完成挂载；若 profile 已有手动挂载行（上面的源码方式），先删除避免双挂载。
+
+每个版本随 [GitHub Release](https://github.com/Howardzhangdqs/dsh-recap/releases) 附带 `pnpm pack` 产出的预构建 tarball（含 `lib/` 产物与 `dsh.plugin.json`，无 sourcemap），pnpm 对远程 tarball 不执行构建脚本，装的就是附件里的产物：
 
 ```sh
-dsh plugin --profile web add dsh-recap@<version>
+dsh plugin --profile web add https://github.com/Howardzhangdqs/dsh-recap/releases/download/v0.1.0/dsh-recap-0.1.0.tgz
 ```
 
-包内 `dsh.bundle` 声明（cordis.patch.yml）使 `dsh plugin` 自动完成挂载；若 profile 已有手动挂载行，先删除避免双挂载。
+升级时改 URL 中的版本号重跑即可。
 
 ## 配置
 

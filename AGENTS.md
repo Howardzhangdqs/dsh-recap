@@ -12,6 +12,23 @@ pnpm typecheck               # tsc --noEmit
 
 **改了 src/ 必须重新 `pnpm build`**：profile 通过 `~/.dsh/profiles/web/package.json` 的 `"dsh-recap": "link:/data/github/dsh-recap"` 挂载，客户端加载的是 `lib/`（`dsh.plugin.json` 的 `client.main` 指向 `./lib/client-registry.js`），不是 `src/`。
 
+## 发布与安装通道（维护者）
+
+本插件**不发布 npm**；用户安装走源码 link 或 GitHub Release 预构建 tarball（README 只写面向用户的两条路）。发布新版本：
+
+```sh
+# 1. 改 package.json 与 dsh.plugin.json 的 version（两处须一致）
+# 2. 构建 + 打包 + 发 Release（tgz 含 lib/ 产物，pnpm 对远程 tarball 不跑构建脚本）
+pnpm build && pnpm pack
+gh release create v<version> dsh-recap-<version>.tgz --title v<version>
+# 3. push
+```
+
+- `prepare: tsdown` / `prepublishOnly: pnpm build` 钩子与 dsh-dashboard 一致（tarball/本地 link 场景兜底出 `lib/`）。
+- **git spec 直装不可用**（`dsh plugin add github:...`）：git 安装时 pnpm 跑 `prepare`，但构建器 tsdown 在 devDependencies、git 依赖不装 devDeps，必然失败——dsh-dashboard 同因只提供 tarball 通道。
+- 无 Release 时的本地变体：`pnpm build && pnpm pack && dsh plugin --profile web add ./dsh-recap-<version>.tgz`。
+- pack 产物按 package.json `files` 圈定：四个 lib bundle、`lib/types/**/*.d.ts`、src、`dsh.plugin.json`、`cordis.patch.yml`、README、LICENSE（`pnpm pack --dry-run` 可核对）。
+
 ## 架构地图
 
 | 文件 | 职责 |

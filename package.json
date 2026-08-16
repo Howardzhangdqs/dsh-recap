@@ -54,6 +54,8 @@
   ],
   "scripts": {
     "build": "rm -rf lib && tsc -p tsconfig.build.json && tsdown",
+    "prepublishOnly": "pnpm build",
+    "prepare": "tsdown",
     "typecheck": "tsc --noEmit",
     "bundle": "tsdown",
     "watch": "tsdown --watch",
