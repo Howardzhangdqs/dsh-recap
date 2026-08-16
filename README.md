@@ -75,6 +75,24 @@ dsh plugin --profile web add dsh-recap@<version>
 | `provider` + `model` | 未设置 | 凝练专用路由（两者须成对设置）；未设置时跟随会话路由 → 宿主默认模型 |
 | `effort` | `off` | `off`（关思考）→ `low`（低思考）→ `follow`（跟随适配器默认）三级阶梯：路由拒绝当前档时自动降档并按路由记忆；模型无 effort 词表时最终省略该字段 |
 
+#### 「关闭思考」（off）真正生效的条件
+
+`effort: off` 是否显式发送「禁用思考」由**路由的适配器与模型声明**决定，不在本插件：
+
+- **DeepSeek 官方路由**：适配器内置映射，`off` → `thinking: {type: "disabled"}`，开箱即用。
+- **pi-ai 路由（zai 等）**：模型的 effort 档位表来自 settings 文档（`llm-pi-ai.providers.<route>.models[].reasoningEfforts`），且**未声明的档位一律视为不支持**：
+  - 条目完全没写 `reasoningEfforts`、又不在 pi-ai 内置目录里的模型，会被当成**非思考模型**——请求里连 `thinking` 字段都不写（是否思考取决于服务端默认）；
+  - 要显式关闭，需在模型条目里声明 `off` 档，YAML **空值**写法（`off:` 留 null）表示「支持关闭：发送时省略参数」，zai 格式会序列化为 `thinking: {type: "disabled"}`；注意只声明 `off` 一个档会被校验拒绝，须同时声明至少一个思考档：
+
+    ```yaml
+    reasoningEfforts:
+      off:        # null = 支持关闭：发送时省略参数（zai 格式 → thinking: {type: disabled}）
+      low: low
+      high: high
+    ```
+
+  - 路由不支持 `off` 时（档位表未声明），本插件的降档阶梯会**静默**退到 `low` 或省略字段——「关闭」名不副实但不会报错，排查时先看该模型的 `reasoningEfforts` 声明。
+
 ## 模型工具（默认关闭）
 
 开启 `toolsEnabled` 后注册两个工具（按调用 agent 的会话绑定作用域）：
