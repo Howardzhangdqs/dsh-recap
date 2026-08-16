@@ -1,0 +1,16 @@
+{
+  "id": "dsh-external/dsh-recap",
+  "version": "0.1.0",
+  "main": "./lib/index.js",
+  "description": "会话回顾凝练：把每一次模型请求（turn:step）的新增数据凝练成一句话，增量追加、历史句作为提示前缀最大化缓存命中；对 agent loop 零侵入（不写会话日志、不注入消息、并行生成）",
+  "engines": {
+    "dsh": ">=0.0.1"
+  },
+  "contributes": {
+    "tools": [],
+    "skills": []
+  },
+  "client": {
+    "main": "./lib/client-registry.js"
+  }
+}

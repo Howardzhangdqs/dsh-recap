@@ -1,0 +1,5 @@
+node_modules/
+lib/
+.pnpm-store/
+.npmrc
+*.log
