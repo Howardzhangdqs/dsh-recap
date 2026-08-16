@@ -1,6 +1,6 @@
 # dsh-recap 开发指南（给 AI 代理与未来 contributor）
 
-DSH 会话回顾凝练插件：把每次模型请求（turn:step）的新增数据凝练成一句话，内联渲染在对话流中。本文沉淀 slot 运行时的硬规则、渲染路径分工与调试经验——都是踩过坑换来的，改动渲染/注册逻辑前务必先读「slot 红线」一节。
+DSH 会话回顾总结插件：把每次模型请求（turn:step）的新增数据总结成一句话，内联渲染在对话流中。本文沉淀 slot 运行时的硬规则、渲染路径分工与调试经验——都是踩过坑换来的，改动渲染/注册逻辑前务必先读「slot 红线」一节。
 
 ## 常用命令
 
@@ -20,7 +20,7 @@ pnpm typecheck               # tsc --noEmit
 | `src/client/index.ts` | 客户端 `apply()`：slot 接管编排 + 设置分区注册 + DOM 渲染器启停（三路分支见下） |
 | `src/client/stepview.tsx` | React 委托包装（assistant-step 接管、tool-call 接管、turnTail 链） |
 | `src/client/SettingsSection.tsx` | 设置页组件（`settings.section` 槽，读写走自有 `/recap/api/settings*` 路由） |
-| `src/client/RoutePicker.tsx` | 凝练路由级联下拉（`/recap/api/providers` 拉清单、per-provider 缓存、失败降级文本输入） |
+| `src/client/RoutePicker.tsx` | 总结路由级联下拉（`/recap/api/providers` 拉清单、per-provider 缓存、失败降级文本输入） |
 | `src/client/SelectMenu.tsx` | 通用下拉（`Button` outline 锚点 + `Menu` 弹层，取代原生 `<select>` 以贴合主题令牌） |
 | `src/client/settings-style.ts` | 设置页样式表与 class 常量（独立于 inline 行的 `style.ts`） |
 | `src/client/inline.ts` | DOM 锚定渲染器，两种 scope：`'all'`（全量 fallback）与 `'calls-only'`（降级补位） |

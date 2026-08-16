@@ -51,6 +51,10 @@ export interface RecapConfig {
   maxPending?: number
   /** Auxiliary call deadline (ms). */
   requestTimeoutMs?: number
+  /** Backoff before re-attempting a transiently failed generation (ms);
+   *  rate-limited routes (e.g. zai's 429/1305) requeue their delta instead
+   *  of recording a failure entry. */
+  retryBackoffMs?: number
   /** Output cap of one recap call (tokens; a single sentence needs few). */
   maxTokens?: number
   /** Whether the model-facing recap tools are registered (default off — the
@@ -71,6 +75,7 @@ export const Config: z<RecapConfig> = z.object({
   storeMaxEntries: z.number().step(1).min(10).default(500),
   maxPending: z.number().step(1).min(10).default(200),
   requestTimeoutMs: z.number().step(1).min(1_000).default(60_000),
+  retryBackoffMs: z.number().step(1).min(100).default(30_000),
   maxTokens: z.number().step(1).min(16).default(120),
   toolsEnabled: z.boolean().default(false),
   storeDir: z.string(),
@@ -87,6 +92,7 @@ export interface ResolvedRecapConfig {
   storeMaxEntries: number
   maxPending: number
   requestTimeoutMs: number
+  retryBackoffMs: number
   maxTokens: number
   toolsEnabled: boolean
   storeDir: string | undefined
@@ -108,6 +114,7 @@ export function resolveRecapConfig(config: RecapConfig | undefined): ResolvedRec
     storeMaxEntries: config?.storeMaxEntries ?? 500,
     maxPending: config?.maxPending ?? 200,
     requestTimeoutMs: config?.requestTimeoutMs ?? 60_000,
+    retryBackoffMs: config?.retryBackoffMs ?? 30_000,
     maxTokens: config?.maxTokens ?? 120,
     toolsEnabled: config?.toolsEnabled ?? false,
     storeDir: config?.storeDir,

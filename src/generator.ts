@@ -10,7 +10,7 @@
  *           …                            store; bare numbered lines so the
  *           k-1. Rk-1                   next request extends this text exactly
  *           <new_delta>{…Δk JSON…}</new_delta>
- *           凝练本次模型请求的数据，输出下一句。
+ *           总结本次模型请求的数据，输出下一句。
  * assistant: Rk                        ← the model's output
  * ```
  *
@@ -75,7 +75,7 @@ export function frameUserMessage(sentences: readonly string[], deltaFramed: stri
     '<new_delta>',
     deltaFramed,
     '</new_delta>',
-    '请凝练本次模型请求的数据，输出下一句。',
+    '请总结本次模型请求的数据，输出下一句。',
   ].join('\n')
 }
 

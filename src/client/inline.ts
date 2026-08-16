@@ -81,7 +81,8 @@ interface InlinePendingItem {
   turn: number
   step: number | null
   callIds: string[]
-  state: 'queued' | 'generating'
+  state: 'queued' | 'generating' | 'retrying'
+  retryInMs?: number
 }
 
 /** The list API result shape. */
@@ -238,9 +239,10 @@ function buildRow(entries: readonly InlineEntry[], tooltip: string): HTMLElement
   return root
 }
 
-/** One pending work item's 凝练中 chip, labeled with its coordinate — same
+/** One pending work item's 总结中 chip, labeled with its coordinate — same
  *  card styling as a row, placed at exactly the position the sentence will
- *  occupy (its request's tail). */
+ *  occupy (its request's tail). A `retrying` item (its generation
+ *  rate-limited) shows the live backoff countdown instead. */
 function buildPendingChip(item: InlinePendingItem): HTMLElement {
   const root = document.createElement('div')
   root.className = `${CLASS.root} ${CLASS.pending}`
@@ -250,7 +252,9 @@ function buildPendingChip(item: InlinePendingItem): HTMLElement {
   chip.className = CLASS.chip
   chip.textContent = item.step === null ? `[T${item.turn}]` : `[T${item.turn}:S${item.step}]`
   const text = document.createElement('span')
-  text.textContent = t('inlinePendingAt')
+  text.textContent = item.state === 'retrying'
+    ? t('inlineRetrying', { seconds: Math.max(1, Math.ceil((item.retryInMs ?? 0) / 1000)) })
+    : t('inlinePendingAt')
   line.append(chip, text)
   root.append(line)
   return root

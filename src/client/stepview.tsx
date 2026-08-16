@@ -5,7 +5,7 @@
  *
  * - `assistant-step` — the wrapper appends, BELOW the official assistant
  *   row, the recap row of a request that issued NO tool calls (a text-only
- *   reply's visual block ends at its own row) plus the matching 凝练中 chip;
+ *   reply's visual block ends at its own row) plus the matching 总结中 chip;
  * - `tool-call` — the wrapper appends, BELOW the official tool row, the
  *   recap rows / pending chips whose request's LAST issued call is this
  *   call: every call-carrying request's recap lands right after its own
@@ -24,7 +24,7 @@
  *
  * The pending chips are per work-item (queue stats items carry turn/step/
  * callIds): each renders at exactly the position its sentence will occupy —
- * "有几个正在凝练就显示几个". No DOM probing: the previous last-assistant-node
+ * "有几个正在总结就显示几个". No DOM probing: the previous last-assistant-node
  * probe hopped between nodes on every streaming frame.
  * @module dsh-recap/client/stepview
  */
@@ -153,12 +153,15 @@ function RecapRow({ entry }: { entry: RecapEntry }): ReactNode {
   )
 }
 
-/** The 凝练中 chip of ONE pending work item, labeled with the coordinate it
+/** The 总结中 chip of ONE pending work item, labeled with the coordinate it
  *  belongs to. Renders at exactly the position the sentence will occupy
  *  (its own request's tail) and is REPLACED in place by the row when the
- *  entry lands — no relocation, no hopping. Not clickable (nothing to copy
- *  yet — the root class's pointer cursor is suppressed in CSS). */
+ *  entry lands — no relocation, no hopping. A `retrying` item (its
+ *  generation rate-limited) shows the live backoff countdown instead of the
+ *  generic 总结中 copy. Not clickable (nothing to copy yet — the root
+ *  class's pointer cursor is suppressed in CSS). */
 export function PendingChip({ item }: { item: RecapPendingItem }): ReactNode {
+  const retrying = item.state === 'retrying'
   return createElement('div', {
     key: `recap-pending-${item.key}`,
     className: `${CLASS.root} ${CLASS.pending}`,
@@ -166,7 +169,9 @@ export function PendingChip({ item }: { item: RecapPendingItem }): ReactNode {
   },
     createElement('div', { className: CLASS.line },
       createElement('span', { className: CLASS.chip }, coordinateLabel(item)),
-      createElement('span', null, t('inlinePendingAt')),
+      createElement('span', null, retrying
+        ? t('inlineRetrying', { seconds: Math.max(1, Math.ceil((item.retryInMs ?? 0) / 1000)) })
+        : t('inlinePendingAt')),
     ),
   )
 }

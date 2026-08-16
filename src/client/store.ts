@@ -19,7 +19,7 @@
  * visibility:hidden and never renders).
  *
  * PENDING items carry the same coordinates (turn/step/callIds) and render
- * one 凝练中 chip each at exactly the position the sentence will occupy.
+ * one 总结中 chip each at exactly the position the sentence will occupy.
  * @module dsh-recap/client/store
  */
 import type { Context } from '../context-types.ts'
@@ -42,7 +42,9 @@ export interface RecapPendingItem {
   turn: number
   step: number | null
   callIds: string[]
-  state: 'queued' | 'generating'
+  state: 'queued' | 'generating' | 'retrying'
+  /** For `retrying` items: ms until the backed-off retry fires (live). */
+  retryInMs?: number
 }
 
 /** The list API result shape. */

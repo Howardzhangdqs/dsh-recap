@@ -33,13 +33,16 @@ interface DefaultModelService {
 
 /** One unit of work visible in the queue stats: WHERE the next recap will
  * land (turn/step/callIds) plus its lifecycle state — the client renders one
- * 凝练中 chip per item at its exact request position. */
+ * 总结中 chip per item at its exact request position, or a 限流等待 chip
+ * while a rate-limited generation backs off. */
 export interface RecapQueueItem {
   key: string
   turn: number
   step: number | null
   callIds: string[]
-  state: 'queued' | 'generating'
+  state: 'queued' | 'generating' | 'retrying'
+  /** For `retrying` items: ms until the backed-off retry fires (live value). */
+  retryInMs?: number
 }
 
 /** Per-session queue state. */
@@ -51,6 +54,14 @@ interface SessionQueue {
   aborted: boolean
   abort: AbortController
   timer: ReturnType<typeof setTimeout> | undefined
+  /** Backed-off retry timer of a transiently failed generation. */
+  retryTimer: ReturnType<typeof setTimeout> | undefined
+  /** Consecutive transient failures of the head delta — the exponential
+   *  backoff's exponent (reset on the first success). */
+  transientFailures: number
+  /** The retrying delta's key + deadline (the stats face marks it 'retrying'). */
+  retryKey: string | undefined
+  retryAt: number | undefined
   /** In-memory sentence cache (the store remains the durable truth). */
   sentences: string[] | undefined
   /** Entry counter for indexing (seeded from the store on first drain). */
@@ -88,6 +99,18 @@ export interface RecapQueueStats {
 /** Project one queued delta into its stats face (queued or generating). */
 function itemOf(delta: StepDelta, state: RecapQueueItem['state']): RecapQueueItem {
   return { key: delta.key, turn: delta.turn, step: delta.step, callIds: [...delta.callIds], state }
+}
+
+/**
+ * Whether a generation failure is TRANSIENT: the delta itself is fine, the
+ * route is merely busy right now. Such failures requeue the delta for a
+ * backed-off retry instead of recording a failure entry — a rate-limited
+ * route (e.g. zai's 429/1305「访问量过大」) must not punch permanent holes
+ * into the recap chain. Everything else keeps the failure-entry contract
+ * (ids stay covered; replay never resurrects the delta).
+ */
+function isTransientError(error: unknown): boolean {
+  return (error as { code?: unknown } | null | undefined)?.code === 'RATE_LIMIT'
 }
 
 /**
@@ -142,6 +165,10 @@ export class RecapQueue {
         aborted: false,
         abort: new AbortController(),
         timer: undefined,
+        retryTimer: undefined,
+        transientFailures: 0,
+        retryKey: undefined,
+        retryAt: undefined,
         sentences: undefined,
         nextIndex: undefined,
         consecutiveFailures: 0,
@@ -219,6 +246,29 @@ export class RecapQueue {
     ;(queue.timer as unknown as { unref?: () => void }).unref?.()
   }
 
+  /**
+   * Arm the backed-off retry of a transiently failed generation. The wait is
+   * EXPONENTIAL in the number of consecutive transient failures of the head
+   * delta — `retryBackoffMs × 2^(n-1)`, capped at 32× the base — and every
+   * further transient failure RE-ARMS the timer with the wider window (a
+   * busy route pushes its next probe monotonically further out). The delta
+   * it will retry sits at the head of `pending` — the timer simply drains
+   * again; the stats face marks that delta `retrying` with a live countdown.
+   */
+  private scheduleRetry(sessionId: string, queue: SessionQueue, delta: StepDelta): void {
+    queue.transientFailures += 1
+    const base = this.deps.config.retryBackoffMs
+    const backoff = Math.min(base * 2 ** (queue.transientFailures - 1), base * 32)
+    if (queue.retryTimer !== undefined) clearTimeout(queue.retryTimer)
+    queue.retryKey = delta.key
+    queue.retryAt = Date.now() + backoff
+    queue.retryTimer = setTimeout(() => {
+      queue.retryTimer = undefined
+      void this.drain(sessionId)
+    }, backoff)
+    ;(queue.retryTimer as unknown as { unref?: () => void }).unref?.()
+  }
+
   /** Cancel the debounce and drain immediately (API / model tool). */
   async drainNow(sessionId: string): Promise<void> {
     const queue = this.stateOf(sessionId)
@@ -236,6 +286,7 @@ export class RecapQueue {
     queue.aborted = true
     queue.abort.abort()
     if (queue.timer !== undefined) clearTimeout(queue.timer)
+    if (queue.retryTimer !== undefined) clearTimeout(queue.retryTimer)
     this.sessions.delete(sessionId)
   }
 
@@ -252,7 +303,15 @@ export class RecapQueue {
     }
     const items: RecapQueueItem[] = []
     if (queue.inFlight !== undefined) items.push(itemOf(queue.inFlight, 'generating'))
-    for (const delta of queue.pending) items.push(itemOf(delta, 'queued'))
+    for (const delta of queue.pending) {
+      // The requeued head delta under a live retry timer is WAITING, not
+      // merely queued — surface the countdown so the inline chip can say so.
+      if (queue.retryTimer !== undefined && queue.retryKey === delta.key && queue.inFlight === undefined) {
+        items.push({ ...itemOf(delta, 'retrying'), retryInMs: Math.max(0, (queue.retryAt ?? 0) - Date.now()) })
+      } else {
+        items.push(itemOf(delta, 'queued'))
+      }
+    }
     return {
       pending: queue.pending.length + (queue.inFlight !== undefined ? 1 : 0),
       draining: queue.draining,
@@ -355,9 +414,30 @@ export class RecapQueue {
             history.push(generation.sentence)
             if (queue.nextIndex !== undefined) queue.nextIndex += 1
             queue.consecutiveFailures = 0
+            queue.transientFailures = 0
             queue.lastError = undefined
+            // The retry timer (if one survived an eager trigger's drain)
+            // would only fire into an empty queue — drop it and its marker.
+            if (queue.retryTimer !== undefined && queue.retryKey === delta.key) {
+              clearTimeout(queue.retryTimer)
+              queue.retryTimer = undefined
+              queue.retryKey = undefined
+              queue.retryAt = undefined
+            }
           } catch (error) {
             if (queue.abort.signal.aborted) return // dispose: the taken delta is dropped with the chain
+            if (isTransientError(error)) {
+              // Rate limited: the delta is fine, the route is busy. Put it
+              // back (HEAD, drain order preserved — no failure entry, no id
+              // coverage) and retry after an exponentially widened backoff.
+              // Deliberately outside the consecutive-failure streak: a busy
+              // route waits out its backoff, not the next trigger.
+              queue.pending.unshift(delta)
+              queue.lastError = error instanceof Error ? error.message : String(error)
+              this.log(`generation rate-limited for ${sessionId} (${delta.key}); attempt ${queue.transientFailures + 1}`)
+              this.scheduleRetry(sessionId, queue, delta)
+              return
+            }
             queue.consecutiveFailures += 1
             queue.lastError = error instanceof Error ? error.message : String(error)
             this.log(`generation failed for ${sessionId} (${delta.key})`, error)

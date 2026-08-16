@@ -6,7 +6,7 @@
  * renderer (hooks need a dispatcher — calling the component directly is not
  * a valid test path). The regression guard for the "recap disappeared
  * entirely" failure class, plus the request-exact placement: recap rows and
- * 凝练中 chips land at their own request's tail. Also pins the tool-call
+ * 总结中 chips land at their own request's tail. Also pins the tool-call
  * takeover's declaration gate: the seat is taken over (children table and
  * all) ONLY while `tool.call.toolview` is still undeclared — re-declaring
  * an already-declared child throws at register time in the real runtime
@@ -210,7 +210,7 @@ describe('client apply', () => {
       // with the coordinate it belongs to.
       const markupPending = renderToStaticMarkup(createElement(Tool, { node: { kind: 'tool-call', key: '9:tool-callc3' } } as never))
       expect(markupPending).toContain('[T1:S3]')
-      expect(markupPending).toContain('凝练中')
+      expect(markupPending).toContain('总结中')
 
       // The call-free request's recap renders BELOW its own assistant row…
       const markupS1 = renderToStaticMarkup(createElement(Step, { node: { kind: 'assistant-step', data: { turn: 1, step: 1 } } } as never))

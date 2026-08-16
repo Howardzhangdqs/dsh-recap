@@ -1,18 +1,18 @@
 # dsh-recap
 
-[DeepSeek Harness](https://github.com/deepseek-ai/DeepSeek-Harness)（DSH）的会话回顾凝练插件：把**每一次模型请求（turn:step）新增的数据**凝练成一句话，按时间顺序追加成一条「回顾链」——一眼看清这个会话做了什么，而不必重放整个对话。
+[DeepSeek Harness](https://github.com/deepseek-ai/DeepSeek-Harness)（DSH）的会话回顾总结插件：把**每一次模型请求（turn:step）新增的数据**总结成一句话，按时间顺序追加成一条「回顾链」——一眼看清这个会话做了什么，而不必重放整个对话。
 
 技术路线要点：
 
-- **缓存友好的增量生成**。第 k 次凝练请求 = 固定 system + 已有句子 1..k-1（逐字作为前缀）+ 本次新增数据 Δk。provider 前缀缓存的分叉点就在最新一句之后——**除 Δk 外的输入几乎全额缓存命中**，且历史以句子形态回灌（斜率 ~40 tok/步，而非原文 ~640 tok/步），长会话不会撑爆上下文。
+- **缓存友好的增量生成**。第 k 次总结请求 = 固定 system + 已有句子 1..k-1（逐字作为前缀）+ 本次新增数据 Δk。provider 前缀缓存的分叉点就在最新一句之后——**除 Δk 外的输入几乎全额缓存命中**，且历史以句子形态回灌（斜率 ~40 tok/步，而非原文 ~640 tok/步），长会话不会撑爆上下文。
 - **对 agent loop 零侵入**。捕获是 `session/event` 的只读监听；生成是与主循环并行的辅助 `ctx.llm.stream` 调用（`purpose: 'recap'`，可被任何观察者过滤）；**不向会话日志写入任何事件、不注入消息**——持久化走插件自有文件（`~/.dsh/recap/sessions/<sessionId>.jsonl`）。
-- **无思考生成**。凝练调用默认 `reasoningEffort: 'off'`（DeepSeek 适配器映射为 `thinking: disabled`）；不支持 `off` 的路由自动降级 `low` 并按路由记忆。
-- **模型路由用户可指定**。设置页的 `recap` 分区（或侧边栏下拉）可单独指定 provider+model——凝练不需要强模型，指个便宜的即可；未指定时跟随会话当前路由，再退到宿主默认模型。
+- **无思考生成**。总结调用默认 `reasoningEffort: 'off'`（DeepSeek 适配器映射为 `thinking: disabled`）；不支持 `off` 的路由自动降级 `low` 并按路由记忆。
+- **模型路由用户可指定**。设置页的 `recap` 分区（或侧边栏下拉）可单独指定 provider+model——总结不需要强模型，指个便宜的即可；未指定时跟随会话当前路由，再退到宿主默认模型。
 
 ## 界面
 
-- **对话内联回顾行（独立，不依赖任何其他插件）**：每句凝练**穿插在模型正式回复之间**——直接插在产生它的那次模型请求（assistant 消息行）之后，而不是全列在轮末。锚点来自对话引擎给每个聊天行盖的稳定属性（assistant 行 `data-chat-anchor-key="14:assistant-step<turn>:<step>"`、轮尾 `data-turn-tail`），MutationObserver 对位注入/回收；某 step 行未渲染（被打断等）时回退到同 turn 更早的 step 行。默认 `step-end` 触发：请求一结束（~1.5s debounce）即凝练，下一轮轮询（2.5s）内出现在原位。页面隐藏时轮询暂停。
-- **设置页**：客户端在 DSH 设置外壳注册 `settings.section` 分区（「会话回顾」），渲染启用开关 / 凝练间隔 / provider / model / 思考等级，经插件自有的 `/recap/api/settings*` 路由读写（DSH 的 settings RPC 不向配置客户端放行第三方命名空间），实时生效。provider/model 为级联下拉（`/recap/api/providers` → `ctx.llm.listProviders/listModels`，按 provider 缓存；清单加载失败时降级为手动输入）。
+- **对话内联回顾行（独立，不依赖任何其他插件）**：每句总结**穿插在模型正式回复之间**——直接插在产生它的那次模型请求（assistant 消息行）之后，而不是全列在轮末。锚点来自对话引擎给每个聊天行盖的稳定属性（assistant 行 `data-chat-anchor-key="14:assistant-step<turn>:<step>"`、轮尾 `data-turn-tail`），MutationObserver 对位注入/回收；某 step 行未渲染（被打断等）时回退到同 turn 更早的 step 行。默认 `step-end` 触发：请求一结束（~1.5s debounce）即总结，下一轮轮询（2.5s）内出现在原位。页面隐藏时轮询暂停。
+- **设置页**：客户端在 DSH 设置外壳注册 `settings.section` 分区（「会话回顾」），渲染启用开关 / 总结间隔 / provider / model / 思考等级，经插件自有的 `/recap/api/settings*` 路由读写（DSH 的 settings RPC 不向配置客户端放行第三方命名空间），实时生效。provider/model 为级联下拉（`/recap/api/providers` → `ctx.llm.listProviders/listModels`，按 provider 缓存；清单加载失败时降级为手动输入）。
 
 ## 安装（从源码）
 
@@ -58,8 +58,9 @@ dsh plugin --profile web add dsh-recap@<version>
 | `toolArgsLimit` | `1024` | 工具调用参数截断 |
 | `historyMaxSentences` | `400` | 提示词携带的最大历史句数（超限折叠最旧） |
 | `storeMaxEntries` | `500` | 每会话落盘条数上限（超限压缩文件） |
-| `maxPending` | `200` | 待凝练 Δ 上限（超限合并最旧，背压） |
-| `requestTimeoutMs` | `60000` | 单次凝练调用超时 |
+| `maxPending` | `200` | 待总结 Δ 上限（超限合并最旧，背压） |
+| `requestTimeoutMs` | `60000` | 单次总结调用超时 |
+| `retryBackoffMs` | `30000` | 限流退避基数：生成遇 `RATE_LIMIT`（如 zai 的 429/1305「访问量过大」）时，该 Δ **原样回到队首**等待重试——不记失败条目、不占覆盖，链条不留永久空洞。等待**指数加宽**（连续限流 ×2，封顶 32× 基数），等待期间该位置的内联芯片显示「限流等待中，Ns 后重试…」 |
 | `maxTokens` | `120` | 单句输出上限 |
 | `toolsEnabled` | `false` | 是否注册模型工具（默认关：工具 schema 会进入会话请求） |
 | `storeDir` | `~/.dsh/recap/sessions` | 存储目录覆盖 |
@@ -71,8 +72,8 @@ dsh plugin --profile web add dsh-recap@<version>
 | 键 | 默认 | 说明 |
 |---|---|---|
 | `enabled` | `true` | 总开关（false 时暂停生成，Δ 继续积累） |
-| `interval` | `1` | 凝练粒度：每 N 个请求的新增数据合并凝练成**一句**（1 = 每请求一句）。加宽后每句的坐标为 `[T<turn>]`（覆盖请求区间）；改小后下一个请求立即恢复细粒度 |
-| `provider` + `model` | 未设置 | 凝练专用路由（两者须成对设置）；未设置时跟随会话路由 → 宿主默认模型 |
+| `interval` | `1` | 总结粒度：每 N 个请求的新增数据合并总结成**一句**（1 = 每请求一句）。加宽后每句的坐标为 `[T<turn>]`（覆盖请求区间）；改小后下一个请求立即恢复细粒度 |
+| `provider` + `model` | 未设置 | 总结专用路由（两者须成对设置）；未设置时跟随会话路由 → 宿主默认模型 |
 | `effort` | `off` | `off`（关思考）→ `low`（低思考）→ `follow`（跟随适配器默认）三级阶梯：路由拒绝当前档时自动降档并按路由记忆；模型无 effort 词表时最终省略该字段 |
 
 #### 「关闭思考」（off）真正生效的条件
@@ -98,7 +99,7 @@ dsh plugin --profile web add dsh-recap@<version>
 开启 `toolsEnabled` 后注册两个工具（按调用 agent 的会话绑定作用域）：
 
 - `recap_read(limit?)` — 读取回顾链（新句在前）
-- `recap_refresh()` — 立即排空待凝练队列
+- `recap_refresh()` — 立即排空待总结队列
 
 ## HTTP API
 

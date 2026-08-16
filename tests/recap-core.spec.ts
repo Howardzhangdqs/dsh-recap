@@ -559,6 +559,70 @@ describe('queue', () => {
     expect([...await store.coveredIds('s1')].sort()).toEqual(['a1', 'a2'])
   })
 
+  it('requeues a rate-limited generation and retries after the backoff', async () => {
+    // zai's 429/1305「访问量过大」 arrives as a RATE_LIMIT finish error: the
+    // delta is fine, the route is busy — it must requeue (no failure entry,
+    // ids stay uncovered) and succeed once the backoff elapses.
+    let calls = 0
+    const ctx = llmContext(() => {
+      calls += 1
+      if (calls === 1) {
+        return [{ type: 'finish', reason: { kind: 'error', failure: { code: 'RATE_LIMIT', message: '429: {"code":"1305","message":"该模型当前访问量过大，请您稍后再试"}' } } }]
+      }
+      return textChunks('限流恢复后的句子')
+    })
+    const store = new RecapStore(dir, 100)
+    const queue = new RecapQueue({
+      ctx,
+      config: resolveRecapConfig({ storeDir: dir, debounceMs: 0, requestTimeoutMs: 5_000, retryBackoffMs: 20 }),
+      store,
+      settings: () => resolveRecapSettings({ enabled: true, effort: 'off' }),
+    })
+    queue.offer('s1', deltaOf('1:1', 1, 1, ['a1']))
+    await queue.drainNow('s1')
+    expect(await store.load('s1')).toHaveLength(0) // no failure entry punched
+    expect(queue.stats('s1').pending).toBe(1) // the delta requeued
+    const waiting = queue.stats('s1').items[0]
+    expect(waiting?.state).toBe('retrying') // surfaced for the inline chip
+    expect(waiting?.retryInMs).toBeGreaterThan(0)
+    expect(waiting?.retryInMs).toBeLessThanOrEqual(20)
+    expect([...await store.coveredIds('s1')].sort()).toEqual([]) // replay still eligible
+    await new Promise((resolve) => setTimeout(resolve, 80)) // backoff (20ms) + the retry drain
+    const entries = await store.load('s1')
+    expect(entries).toHaveLength(1)
+    expect(entries[0]?.status).toBe('ok')
+    expect(entries[0]?.sentence).toBe('限流恢复后的句子')
+    expect(queue.stats('s1').pending).toBe(0)
+  })
+
+  it('widens the backoff exponentially on repeated rate limits', async () => {
+    // Each consecutive transient failure re-arms the timer with base × 2^(n-1)
+    // — the stats face's live countdown is the observable.
+    let calls = 0
+    const ctx = llmContext(() => {
+      calls += 1
+      return [{ type: 'finish', reason: { kind: 'error', failure: { code: 'RATE_LIMIT', message: '429 busy' } } }]
+    })
+    const store = new RecapStore(dir, 100)
+    const queue = new RecapQueue({
+      ctx,
+      config: resolveRecapConfig({ storeDir: dir, debounceMs: 0, requestTimeoutMs: 5_000, retryBackoffMs: 100 }),
+      store,
+      settings: () => resolveRecapSettings({ enabled: true, effort: 'off' }),
+    })
+    queue.offer('s1', deltaOf('1:1', 1, 1, ['a1']))
+    await queue.drainNow('s1') // attempt 1 → backoff 100ms (2^0)
+    const first = queue.stats('s1').items[0]?.retryInMs ?? 0
+    expect(first).toBeGreaterThan(50)
+    expect(first).toBeLessThanOrEqual(100)
+    await new Promise((resolve) => setTimeout(resolve, 130)) // first timer fires → attempt 2 → backoff 200ms (2^1)
+    const second = queue.stats('s1').items[0]?.retryInMs ?? 0
+    expect(second).toBeGreaterThan(100)
+    expect(second).toBeLessThanOrEqual(200)
+    expect(queue.stats('s1').items[0]?.state).toBe('retrying')
+    queue.abort('s1') // drop the 200ms timer
+  })
+
   it('parks after a failure streak and resumes on the next trigger', async () => {
     const ctx = llmContext(() => {
       throw new Error('route down')
@@ -647,7 +711,7 @@ describe('queue', () => {
 
   it('exposes pending work items with coordinates (queued → generating → gone)', async () => {
     // A gated generator freezes the drain mid-call so the stats face can be
-    // observed in every lifecycle state — the client renders one 凝练中 chip
+    // observed in every lifecycle state — the client renders one 总结中 chip
     // per item at the item's own request position.
     let release: (() => void) | undefined
     const gate = new Promise<void>((resolve) => { release = resolve })
@@ -692,7 +756,7 @@ describe('queue', () => {
     await queue.drainNow('s1')
     expect(await store.load('s1')).toHaveLength(0)
     // The park must not silently drop the work — it stays queued (and thus
-    // keeps its 凝练中 chip) until a route exists.
+    // keeps its 总结中 chip) until a route exists.
     expect(queue.stats('s1').items.map((item) => item.key)).toEqual(['1:1'])
   })
 
