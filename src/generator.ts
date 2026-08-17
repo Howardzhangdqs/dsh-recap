@@ -2,7 +2,7 @@
  * The recap generator: one auxiliary model call per delta, framed so the
  * provider's prefix cache hits everything but the newest tail.
  *
- * Prompt structure (the cache contract — see docs/plans design note):
+ * Prompt structure (the cache contract — see docs/design.md):
  *
  * ```
  * system:   fixed instruction (never changes)
